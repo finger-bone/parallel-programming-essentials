@@ -63,7 +63,7 @@ If you have issue with your editor, please make sure to enable `-fsycl` flag, in
     ],
     "version": 4
 }
-` ``
+```
 
 :::
 
@@ -112,6 +112,42 @@ int main(int, char**) {
     return 0;
 }
 ```
+
+:::tip
+
+Just in case you don't know C++ closure, here is a brief introduction.
+
+Closure, also called lambda function, is a nameless function that is capable of capturing the variable of its parent scope.
+
+The syntax is,
+
+```cpp
+[ capture-list ] ( parameters ) -> return-type { body }
+```
+
+For example,
+
+```cpp
+void foo() {
+    int x = 0;
+
+    auto bar = [x] (int v) {
+        return x + v;
+    };
+
+    int a = bar(1);
+}
+```
+
+The variable `x` is captured by the lambda function.
+
+Except for the capture list, the lambda function is identical to a normal function.
+
+The external variable can either be captured by value or reference. If there is no prefix, for example, `[x]`, it is capture by value. If there is an ampersand, like `[&x]`, it is capture by reference.
+
+If you have too many parameters, you can use, `[=]` to automatically capture all the variables by value, or `[&]` by reference.
+
+:::
 
 Use the command,
 

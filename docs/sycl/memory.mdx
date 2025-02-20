@@ -210,6 +210,18 @@ buffer buf{host_data};
 
 Buffer is automatically dropped as the scope ends.
 
+Alternatively, you can specify only the size of the buffer with the `range`.
+
+```cpp
+buffer buf(range{N});
+```
+
+Multidimensional buffer is allowed, but maximum dimension is three. You need to specify the type using this constructor.
+
+```cpp
+buffer<T> buf(range{N, N, N});
+```
+
 ### Buffer Accessors
 
 `host_accessor` takes only a buffer, the it can be used the same as array. But `accessor`, which is actually the device accessor, needs an extra handler.
