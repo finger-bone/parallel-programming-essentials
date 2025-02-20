@@ -1,0 +1,53 @@
+---
+sidebar_position: 1
+---
+
+# Parallel Merge Sort
+
+Divide and conquer are all reduce pattern. And thus, when it comes to parallel sorting, the first thing we come to is the merge sort as a parallel divide-and-conquer.
+
+## Idea
+
+There is not much to say about the general idea- when we divide, we dispatch the work in parallel, and that's all. Here let's just calculate its complexity here.
+
+Let's imagine the divide-and-conquer tree. For each layer, every node can be executed in parallel. However, to merge two chunk, it costs $O(n)$. Suppose we are at the $k$ layer (root as zero), the merging costs $O(\frac{n}{2^k})$.
+
+Thus,
+
+$$
+T(n) = T(n / 2) + O(n)
+$$
+
+The complexity is $O(n)$.
+
+:::tip
+
+Master theorem,
+
+For a recursive function,
+
+$$
+T(n) = a T(\frac{n}{b}) + f(n)
+$$
+
+Where $\frac{n}{b}$ can also be $\lceil \frac{n}{b} \rceil$ or $\lfloor \frac{n}{b} \rfloor$.
+
+Consider the function,
+
+$$
+g(n) = n^{\log_b a}
+$$
+
+If,
+
+- $f(n) < g(n)$, $T(n) = \Theta(n^{\log_b a})$.
+- $f(n) = g(n)$, $T(n) = \Theta(f(n) \log n)$.
+- $f(n) > g(n)$, $T(n) = \Theta(f(n))$.
+
+$f(n) > g(n)$ means of higher order in a polynomial sense. That is, there exists such $\epsilon > 0$ that $f(n) = \Omega(g(n)n^{\epsilon})$
+
+$f(n) < g(n)$ means of lower order in a polynomial sense. That is, there exists such $\epsilon > 0$ that $f(n) = O(g(n)n^{-\epsilon})$ 
+
+:::
+
+### Implementation
