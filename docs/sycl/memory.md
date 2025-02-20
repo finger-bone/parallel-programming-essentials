@@ -1,0 +1,289 @@
+---
+sidebar_position: 2
+---
+
+# Memory
+
+In parallel computation, computation is important, but managing the data is as important. Think of taming a wild beast, feeding it is as important as controlling it.
+
+SYCL uses a very simple memory model that requires little detail into the hardware. If you ever learn OpenCL, you will know how complex real memory management can be. SYCL abstracts this complexity away, and provides a simple interface to manage memory.
+
+## SYCL Memory Model
+
+### USM
+
+SYCL use unified memory model that is called USM (Unified Shared Memory). USM is a memory model that allows the programmer to allocate memory that is accessible from both the host and the device. This memory model simplifies the programming model by removing the need to manage separate memory spaces for the host and device.
+
+USM has three types of memory that are all accessed via C++ pointers:
+
+- `usm::alloc::shared` memory is accessible from both the host and device and is shared between them. This memory is useful for data that is read and written by both the host and device.
+- `usm::alloc::device` memory is accessible only from the device and is used to store data that is only read and written by the device.
+- `usm::alloc::host` memory is accessible only from the host and is used to store data that is only read and written by the host.
+
+| Memory allocation types | Description                           | Host accessible | Device accessible                                   | Location |
+|-------------------------|---------------------------------------|-----------------|-----------------------------------------------------|----------|
+| host                    | allocated in host memory              | yes             | yes, remotely through PCIe or fabric link           | host     |
+| device                  | allocated in device memory            | no              | yes                                                 | device   |
+| shared                  | allocated shared between host and device | yes             | yes                                                 | dynamically migrate between host and device |
+
+:::note
+
+A top of the three, SYCL provides buffer that further simplifies the code, which we will come into later. SYCL also provides image class, which is used to access image data. But since this note doesn't entail image processing, we will not go into the details of the image class.
+
+:::
+
+### Allocate and Free USM
+
+To use host memory, just do what we usually do in C++, `new`, `delete`, or smart pointers, whatever you like.
+
+SYCL provides a unified, new `malloc` and `free` pair that can be used to allocate and free memory on the device.
+
+```cpp
+auto ptr = malloc<int>(N, q, usm::alloc::device);
+```
+
+This will allocate an array of `N` integers on the device. The `q` is the queue that the memory is allocated on. The `usm::alloc::device` is the type of memory to allocate. The `malloc` function returns a pointer to the allocated memory.
+
+Similarly, to free the memory, use `free` function.
+
+```cpp
+free(ptr, q);
+```
+
+But usually, for allocation, we use allocation function with the type of memory given, that is,
+
+```cpp
+auto host_ptr = malloc_host<int>(N, q);
+auto device_ptr = malloc_device<int>(N, q);
+auto shared_ptr = malloc_shared<int>(N, q);
+```
+
+## Memory Transfer
+
+We usually need to move the data from one type of memory to another, or to move the data from one device to another, there are two ways to do it.
+
+### Explicit data movement
+
+Explicit data movement requires the programmer to manually copy data between different memories. For example, with a discrete accelerator, data must first be copied from host memory to accelerator memory before a kernel can use it. After the device computes the results, the data must be copied back to the host memory for use. 
+
+The main advantage of explicit data movement is that the programmer has full control over when data is transferred, which is essential for optimizing performance by overlapping computation with data transfer. 
+
+However, the drawback is that managing data movement can be tedious, error-prone, and time-consuming. Ensuring all data is transferred correctly and at the right time can be difficult and lead to incorrect results.
+
+### Implicit data movement 
+
+Implicit data movement, on the other hand, is handled by the parallel runtime or driver. The programmer does not have to manually manage data transfers; the runtime automatically ensures that data is transferred to the appropriate memory before use. 
+
+The advantage of implicit data movement is that it simplifies development since the runtime handles the heavy lifting. This reduces the potential for errors in data transfers. 
+
+However, the downside is that the programmer has less control over the behavior of the memory transfers. While this simplifies the porting of applications to new devices, in performance-critical sections, developers may replace implicit data movement with explicit data movement to optimize performance.
+
+### USM transfer in Practice
+
+This part entails how we move the data within the USM. The key is to use `h.memcopy`,
+
+```cpp
+#include <array>
+#include <sycl/sycl.hpp>
+using namespace sycl;
+
+constexpr int N = 42;
+
+int main() {
+    queue q;
+    std::array<int, N> host_array;
+    int *device_array = malloc_device<int>(N, q);
+
+    // Initialize host_array
+    for (int i = 0; i < N; i++) {
+        host_array[i] = N;
+    }
+
+    // Copy host_array to device_array
+    q.submit([&](handler &h) {
+        h.memcpy(device_array, &host_array[0], N * sizeof(int));
+    });
+
+    q.wait();
+
+    // Increment values in device_array
+    q.submit([&](handler &h) {
+        h.parallel_for(N, [=](id<1> i) {
+            device_array[i]++; 
+        });
+    });
+
+    q.wait();
+
+    // Copy device_array back to host_array
+    q.submit([&](handler &h) {
+        h.memcpy(&host_array[0], device_array, N * sizeof(int));
+    });
+
+    q.wait();
+
+    // Free device memory
+    free(device_array, q);
+
+    return 0;
+}
+```
+
+For implicit data movement, we just pretend as if everything is in the same memory, and the runtime will take care of the rest.
+
+```cpp
+#include <sycl/sycl.hpp>
+using namespace sycl;
+
+constexpr int N = 42;
+
+int main() {
+    queue q;
+
+    int *host_array = malloc_host<int>(N, q);
+    int *shared_array = malloc_shared<int>(N, q);
+
+    // Initialize host_array on host
+    for (int i = 0; i < N; i++) {
+        host_array[i] = i;
+    }
+
+    // We will learn how to simplify this example later
+    q.submit([&](handler &h) {
+        h.parallel_for(N, [=](id<1> i) {
+            // Access shared_array and host_array on device
+            shared_array[i] = host_array[i] + 1;
+        });
+    });
+
+    q.wait();
+
+    // Access shared_array on host
+    for (int i = 0; i < N; i++) {
+        host_array[i] = shared_array[i];
+    }
+
+    free(shared_array, q);
+    free(host_array, q);
+
+    return 0;
+}
+```
+
+## Buffer
+
+With `malloc`, `free` and `memcopy`, our need has been met. However, memory transfer is such a tedious and common task, so SYCL provides a buffer class that simplifies the memory management.
+
+Buffers are a data abstraction that represent one or more objects of a given C++ type that satisfies device copyable concept.
+
+:::tip
+
+Concept is a very new feature in C++20. If you ever learnt typescript, concept is like interface in typescript. It is a way to define a set of rules that a type must satisfy- for example, having certain member functions, or being copyable.
+
+:::
+
+:::note
+
+In std library, the device copyable containers are,
+
+- `std::array<T, N>` if T is device copyable;
+- `std::optional<T>` if T is device copyable;
+- `std::pair<T1, T2>` if T1 and T2 are device copyable;
+- `std::tuple<Types...>` if all the types in the parameter pack Types are device copyable;
+- `std::variant<Types...>` if all the types in the parameter pack Types are device copyable;
+- `std::basic_string_view<CharT, Traits>`;
+- `std::span<ElementType, Extent>` (the std::span type has been introduced in C++20);
+
+Please note that `std::vecor` is not device copyable.
+
+:::
+
+Basically, you don't have to care about where your data is. You just create a buffer, then use different accessors to the same buffer.
+
+### Buffer Creation
+
+To create buffer, use the construction method. It simply takes any object.
+
+```cpp
+buffer buf{host_data};
+```
+
+Buffer is automatically dropped as the scope ends.
+
+### Buffer Accessors
+
+`host_accessor` takes only a buffer, the it can be used the same as array. But `accessor`, which is actually the device accessor, needs an extra handler.
+
+```cpp
+#include <array>
+#include <sycl/sycl.hpp>
+using namespace sycl;
+
+constexpr int N = 42;
+
+int main()
+{
+    std::array<int, N> my_data;
+    for (int i = 0; i < N; i++)
+    {
+        my_data[i] = 0;
+    }
+
+    {
+        queue q;
+        buffer my_buffer(my_data);
+
+        q.submit([&](handler &h)
+                 {
+            // create an accessor to update the buffer on the device
+            accessor my_accessor(my_buffer, h);
+
+            h.parallel_for(N, [=](id<1> i) {
+                my_accessor[i]++; 
+            }); });
+
+        // create host accessor
+        host_accessor host_accessor(my_buffer);
+
+        for (int i = 0; i < N; i++)
+        {
+            // access myBuffer on host
+            std::cout << host_accessor[i] << " ";
+        }
+        std::cout << "\n";
+    }
+
+    // myData is updated when myBuffer is destroyed upon exiting scope
+    for (int i = 0; i < N; i++)
+    {
+        std::cout << my_data[i] << " ";
+    }
+    std::cout << "\n";
+
+    return 0;
+}
+```
+
+You can also put access mode into the accessor, so that the SYCL runtime can better optimize the action graph (for example, two read only action can be executed in parallel).
+
+```cpp
+accessor{buffer, h, access_mode::read}
+```
+
+| Access Mode   | Description                                                         |
+|---------------|---------------------------------------------------------------------|
+| read          | Read-only access.                                                   |
+| write         | Write-only access. Previous contents are not discarded in case of partial writes. |
+| read_write    | Read and write access.                                              |
+
+:::note
+
+You can use in-order-queue that is guaranteed to execute the action graph in the same order as you create them,
+
+```cpp
+queue q{property::queue::inorder()};
+```
+
+By default, the queue is out of order for better performance.
+
+:::

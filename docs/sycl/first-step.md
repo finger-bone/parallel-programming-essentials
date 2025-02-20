@@ -40,6 +40,33 @@ services:
 Then you can attach vscode to the docker and use it as your environment (Yes, Rosetta is that magical).
 </details>
 
+:::tip
+
+If you have issue with your editor, please make sure to enable `-fsycl` flag, include the headers, and select the correct compiler. The folowing is an example for vscode.
+
+```json
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/opt/intel/oneapi/dpl/2022.6/include/pstl_offload"
+            ],
+            "defines": [],
+            "compilerArgs": [
+                "-fsycl"
+            ],
+            "compilerPath": "/opt/intel/oneapi/compiler/2024.2/bin/icpx",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}
+```
+
+:::
+
 We write our first program as a demonstration. You don't need to understand any of the code. Just copy paste and run it.
 
 ```cpp
@@ -108,8 +135,6 @@ The `Running on: VirtualApple @ 2.50GHz` is the name of the device. It may vary 
 
 If you ever learnt OpenCL before, you will find the code soothing- not as scary as OpenCL.
 
-For this part, you need to know how to compile and use the header `sycl/sycl.hpp`.
-
 ## Where Code Executes
 
 Unlike OpenCL, SYCL uses a single source. So you should be clear about where your code is running on- by that, we mean, if it is running on your host computer, or the device.
@@ -133,6 +158,10 @@ device.submit([&] (sycl::handler& cgh) {
     cgh.host_task([=] () {
         // host code
     });
+});
+
+device.submit([&] (sycl::handler& cgh) {
+    // host code
     cgh.parallel_for<class my_kernel>(range, [=] (sycl::id<1> idx) {
         // device code
     });
@@ -158,7 +187,7 @@ When we debug, we usually choose CPU as the device because debugging on CPU is m
 
 :::
 
-To select a device, use the `sycl::default_selector_v` as we did in the first program. It will select the default device. You can also use `sycl::cpu_selector_v` or `sycl::gpu_selector_v` to select CPU or GPU.
+A command queue can be bind to a single device, but it can also be bind to multiple. We typically only select one device for a queue. When constructing the queue, use the `sycl::default_selector_v` as we did in the first program. It will select the default device. You can also use `sycl::cpu_selector_v` or `sycl::gpu_selector_v` to select CPU or GPU.
 
 ```cpp
 auto device_selector = sycl::default_selector_v;
@@ -167,4 +196,88 @@ sycl::queue queue{device_selector};
 
 ## Action Graph
 
-`q.submit` does not really submit the command to the device. 
+In `queue.submit`, the closure is called a command group. The command group is a lambda function that takes a `sycl::handler` as an argument. The handler is used to specify the data dependency and the access mode of the buffer.
+
+For each command group, there can be at most one call to the device. That is, you can use host code to prepare the data in the `queue.submit`, but you can upmost call the device once- or you can fill it with host code.
+
+:::note
+
+There are two types of action that will require device code. Either direct device code execution, or explicit memory operation that moves data between host and device.
+
+Common ones include,
+
+| Work Type                     | Method | Summary                                                                                         |
+|-------------------------------|---------------------------------|-------------------------------------------------------------------------------------------------|
+| Device code execution          | single_task                     | Execute a single instance of a device function.                                                 |
+| Device code execution                             | parallel_for                    | Multiple forms are available to launch device code with different combinations of work sizes.   |
+| Explicit memory operation      | copy                            | Copy data between locations specified by accessor, pointer, and/or shared_ptr. The copy occurs as part of the SYCL task graph (described later), including dependence tracking. |
+| Explicit memory operation                         | update_host                     | Trigger update of host data backing of a buffer object.                                         |
+| Explicit memory operation                 | fill                            | Initialize data in a buffer to a specified value.                                               |
+
+:::
+
+Because each command group can only have one device call, we usually call the device multiple times so that we can complete a task. This require us to manage and schedule all the actions.
+
+SYCL uses a directed acyclic graph (DAG) to schedule the actions and deal with data dependencies. This is called an action graph. Please note that the action can be either host code or device code. For example,
+
+```mermaid
+graph LR
+    A[Prepare the Data] --> B[Copy the Data to Device]
+    B --> C
+    B --> E
+    C[Do Compute on the Device] --> D[Copy the Data Back to Host]
+    E[Do Another Compute on the Device] --> D
+```
+
+To construct such a graph in code, we use the typical async-await pattern, except that the name is event-wait.
+
+`queue.submit` will return an `event` object (but you should receive it using `auto` because the type is long).
+
+When you create another command group, you can use `h.depends_on(e)` to specify that the new command group depends on the previous one.
+
+```cpp
+#include <sycl/sycl.hpp>
+#include <iostream>
+#include <array>
+using namespace sycl;
+constexpr int N = 4;
+
+int main() {
+    queue q;
+    int* A = malloc_shared<int>(N, q);
+
+    std::cout << "Selected device: "
+              << q.get_device().get_info<info::device::name>() << "\n";
+
+    // Initialize values in the shared allocation
+    auto eA = q.submit([&](handler& h) {
+        h.parallel_for(N, [=](auto& idx) { A[idx] = idx; });
+    });
+
+    // Use a host task to output values on the host as part of
+    // task graph. depends_on is used to define a dependence
+    // on previous device code having completed. Here the host
+    // task is defined as a lambda expression.
+    q.submit([&](handler& h) {
+        h.depends_on(eA);
+        h.host_task([=]() {
+            for (int i = 0; i < N; i++)
+                std::cout << "host_task @ " << i << " = " << A[i] << "\n";
+        });
+    });
+
+    // Wait for work to be completed in the queue before
+    // accessing the shared data in the host program.
+    q.wait();
+
+    for (int i = 0; i < N; i++)
+        std::cout << "main @ " << i << " = " << A[i] << "\n";
+
+    free(A, q);
+    return 0;
+}
+```
+
+Lastly, if we want the SYCL to finish all the work. We use `q.wait()`, so that we can eventually get the result.
+
+When writing SYCL code, you should always keep in mind that the code is running asynchronously.
