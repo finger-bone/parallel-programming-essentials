@@ -1,0 +1,71 @@
+---
+sidebar_position: 3
+---
+
+# Basic Kernel
+
+A kernel is a task that is distributed to each processing element on a computation device.
+
+:::note
+
+In SYCL, there are two types of kernel.
+
+The basic kernel, which we are introducing here, is a type that is simple and more managed by the run time. It is should be your goto-choice, because it allows you to focus on the logic.
+
+However, there are also ND kernel which allows more control for you, and this is more similar to the kernel you'll use in CUDA or OpenCL. This is more traditional and if you were migrating a kernel from CUDA or OpenCL, you should use the ND kernel.
+
+Again, this series choose SYCL for its simplicity, so we only introduce the basic kernel. Unless you need extreme performance, or you're optimizing the hot spot, you should use the basic kernel for more productivity.
+
+:::
+
+## Expressing Parallelism
+
+We used `parallel_for` before- but we never explained how it wo=rks. We just told you what action we achieved. Now let's look at how to use it.
+
+Serial programming `for` would look like,
+
+```cpp
+for (int i = 0; i < N; i++) {
+    a[i] = b[i] + c[i];
+}
+```
+
+This loop will first, set an `i` value, execute the body, then set a new value or exit the loop.
+
+But for parallel for, we use the following,
+
+```cpp
+q.submit([&](handler &h) {
+    h.parallel_for(N, [=](id<1> i) {
+        a[i] = b[i] + c[i];
+    })
+})
+```
+
+The first parameter of `parallel_for` is *how many kernels you'd like to launch*. The second parameter is the kernel function.
+
+When executing the command, the SYCL runtime will distribute the kernel function to each processing element (the minimal unit of execution on a device).
+
+However, we definitely do not want all of the kernel function to repeat the exact same task. So besides the kernel function, every processing element will also get their `id`.
+
+For the above code, a processing element will add up the `id`-th dimension of the two vector.
+
+Each of such a kernel is also called a work item.
+
+Again, each kernel runs parallel. In parallel programming, the work of us, the programmer, is to design the kernel function, so that they can run parallel without blocking (or as little blocking as possible), and be as fast as possible.
+
+## Multidimensional `parallel_for`
+
+We may sometimes write double loop for matrix operation. A simple way to write kernel for such operation would be to flatten the matrix to one dimensional array. But since this is so frequently used, multidimensional `parallel_for` is provided.
+
+```cpp
+h.parallel_for(range{N, N}, =[=](id<2> idx) {
+    int j = idx[0];
+    int i = idx[1];
+    for (int k = 0; k < N; ++k) {
+        c[j][i] += a[j][k] * b[k][i]; // or c[idx] += a[id(j,k)] * b[id(k,i)];
+    }
+});
+```
+
+Please take note that the maximum number of dimension is three.

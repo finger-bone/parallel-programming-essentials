@@ -26,7 +26,7 @@ USM has three types of memory that are all accessed via C++ pointers:
 | device                  | allocated in device memory            | no              | yes                                                 | device   |
 | shared                  | allocated shared between host and device | yes             | yes                                                 | dynamically migrate between host and device |
 
-:::note
+:::info
 
 A top of the three, SYCL provides buffer that further simplifies the code, which we will come into later. SYCL also provides image class, which is used to access image data. But since this note doesn't entail image processing, we will not go into the details of the image class.
 
@@ -182,7 +182,7 @@ Concept is a very new feature in C++20. If you ever learnt typescript, concept i
 
 :::
 
-:::note
+:::info
 
 In std library, the device copyable containers are,
 
@@ -276,7 +276,7 @@ accessor{buffer, h, access_mode::read}
 | write         | Write-only access. Previous contents are not discarded in case of partial writes. |
 | read_write    | Read and write access.                                              |
 
-:::note
+:::info
 
 You can use in-order-queue that is guaranteed to execute the action graph in the same order as you create them,
 
@@ -287,3 +287,13 @@ queue q{property::queue::inorder()};
 By default, the queue is out of order for better performance.
 
 :::
+
+### Buffer Copy
+
+To copy a buffer, just call,
+
+```cpp
+q.submit([&](handler &h) {
+    h.copy(my_buffer1, my_buffer2);
+})
+```

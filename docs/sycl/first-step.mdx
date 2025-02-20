@@ -63,7 +63,7 @@ If you have issue with your editor, please make sure to enable `-fsycl` flag, in
     ],
     "version": 4
 }
-```
+` ``
 
 :::
 
@@ -139,7 +139,7 @@ If you ever learnt OpenCL before, you will find the code soothing- not as scary 
 
 Unlike OpenCL, SYCL uses a single source. So you should be clear about where your code is running on- by that, we mean, if it is running on your host computer, or the device.
 
-:::note
+:::info
 
 By the host computer, we mean the, well, physical computer you are using. By the device, we mean a part of your computer that is capable of large parallel computation. Typically, it is GPU. But if, for example, you are using Xeon-level processors, the host and device may be the same.
 
@@ -181,7 +181,7 @@ Device code are executed asynchronously from the host code. Thus you need synchr
 
 Host code and device code are fundamentally different. If you ever learnt OpenCL, you can tell that. Thanks to the job done by SYCL dev team, we can write modern C++ for device code. And albeit it runs, you should not use things like dynamic memory allocation, exceptions, etc. in device code. Because most of the time, the device is something like GPU that doesn't support these features.
 
-:::note
+:::info
 
 When we debug, we usually choose CPU as the device because debugging on CPU is much easier than debugging on GPU.
 
@@ -200,7 +200,7 @@ In `queue.submit`, the closure is called a command group. The command group is a
 
 For each command group, there can be at most one call to the device. That is, you can use host code to prepare the data in the `queue.submit`, but you can upmost call the device once- or you can fill it with host code.
 
-:::note
+:::info
 
 There are two types of action that will require device code. Either direct device code execution, or explicit memory operation that moves data between host and device.
 
