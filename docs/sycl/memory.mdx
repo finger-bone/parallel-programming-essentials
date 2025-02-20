@@ -284,8 +284,8 @@ accessor{buffer, h, access_mode::read}
 
 | Access Mode   | Description                                                         |
 |---------------|---------------------------------------------------------------------|
-| read          | Read-only access.                                                   |
-| write         | Write-only access. Previous contents are not discarded in case of partial writes. |
+| read_only          | Read-only access.                                                   |
+| write_only         | Write-only access. Previous contents are not discarded in case of partial writes. |
 | read_write    | Read and write access.                                              |
 
 :::info
@@ -306,6 +306,8 @@ To copy a buffer, just call,
 
 ```cpp
 q.submit([&](handler &h) {
-    h.copy(my_buffer1, my_buffer2);
+    h.copy(from, to);
 })
 ```
+
+Please note that the first parameter is the source, unlike `mem_copy`.

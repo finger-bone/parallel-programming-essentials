@@ -3,3 +3,131 @@ sidebar_position: 3
 ---
 
 # Parallel Prefix Sum
+
+Prefix Sum si a classical problem in computer science. Given an array of numbers, we want to compute the sum of each prefix of the array. For example, given the array `[1, 2, 3, 4, 5]`, the prefix sum is `[1, 3, 6, 10, 15]`.
+
+By calculating the prefix sum, we can get the sum of any sub array with $O(n)$ complexity. However the computing the prefix sum has a cost of $O(n)$.
+
+Prefix sum is obviously, sequential, consider the following code,
+
+```cpp
+int n = data.size();
+vector<int> pre(n, 0);
+for(int i = 0; i < n; i++) {
+    if(i == 0) {
+        pre[i] = data[0];
+    }
+    else {
+        pre[i] = pre[i - 1] + data[i];
+    }
+}
+```
+
+This is a typical reduce pattern with data dependency. We need to do data parallelization to make it parallel.
+
+The Hillis-Steele algorithm can resolve this with lower complexity. It brings data parallelism to this problem.
+
+## Idea
+
+Suppose we have,
+
+$$
+A_0 = [a_0, a_1, a_2, a_3, a_4, a_5, a_6, a_7, \ldots]
+$$
+
+Hillis-Steele tells us to first, chunk $A_0$ into small sub arrays of size two. Then we calculate the prefix sum of each chunk.
+
+$$
+A_1 = [a_0, a_0 + a_1, a_2, a_2 + a_3, a_4, a_4 + a_5, a_6, a_6 + a_7, \dots]
+$$
+
+Then we treat every four elements in $A_1$ as one chunk, and calculate the prefix of the latter half by adding the prefix of the former half.
+
+That is to say, for the four element chunk,
+
+$$
+[a_0, a_0 + a_1, a_2, a_2 + a_3]
+$$
+
+The prefix of former half is $a_0 + a_1$. And the latter half adds this sum element-wise
+
+$$
+[a_0 + a_1, a_0 + a_1 + a_2, a_0 + a_1 + a_2 + a_3, a_0 + a_1 + a_2 + a_3 + a_4]
+$$
+
+Writing it all out is too long, we use the following notation,
+
+$$
+a_{m, n} = \sum_{i = m}^{n} a_i
+$$
+
+And if we apply this operation, we will have,
+
+$$
+A_2 = [a_0, a_{0, 1}, a_{0, 2}, a_{0, 3}, a_4, a_{4, 5}, a_{4, 6}, a_{4, 7}, \dots]
+$$
+
+You can see that we can get the correct prefix sum for each chunk. If we repeat this process, we can get the final result.
+
+And of course, you don't need to treat our first operation as special and write a dedicated kernel- the first operation is just use 2 element chunk while presuming that $A_0$ is chunked every 1 element.
+
+This process repeats $\log n$ times, and we do a transformation operation on each element in parallel, the complexity is $O(\log n)$.
+
+## Implementation
+
+```cpp
+#include <array>
+#include <iostream>
+#include <vector>
+#include <sycl/sycl.hpp>
+
+using namespace sycl;
+
+int main() {
+    queue q;
+    constexpr int N = 1 << 28;
+    std::vector<int> d(N, 1);
+    buffer<int> buf_prev(
+        d.data(), range{N}
+    );
+    buffer<int> buf_next{range{N}};
+
+    int chunk_size = 1;
+    while(chunk_size < N) {
+        auto e = q.submit([&](handler& h) {
+            accessor prev{buf_prev, h, read_only};
+            accessor next{buf_next, h, write_only};
+
+            h.parallel_for(range{N}, [=](id<1> i) {
+                int prev_chunk_id = i / chunk_size;
+                if (prev_chunk_id % 2 == 0) {
+                    next[i] = prev[i];  // Copy the value directly
+                    return;
+                }
+                int prefix_sum_id = prev_chunk_id * chunk_size - 1;
+                if (prefix_sum_id >= 0) {  // Ensure that prefix_sum_id is valid
+                    next[i] = prev[i] + prev[prefix_sum_id];
+                } else {
+                    next[i] = prev[i];
+                }
+            });
+        });
+        e.wait();
+
+        // Swap buffers using a copy operation
+        auto mv = q.submit([&](handler& h) {
+            accessor prev{buf_prev, h, write_only};
+            accessor next{buf_next, h, read_only};
+            h.copy(next, prev);  // Copy back the results to the original buffer
+        });
+        mv.wait();
+
+        chunk_size <<= 1;  // Double the chunk size
+    }
+    host_accessor h_access{buf_prev};
+
+    std::cout << h_access[N - 1] << '\n';
+
+    return 0;
+}
+```

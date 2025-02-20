@@ -6,6 +6,12 @@ sidebar_position: 1
 
 This note book provides introduction to parallel programming. Because this book focuses more on the algorithmic aspects of parallel programming, we use SYCL instead of OpenCL or OpenMP because SYCL is a higher level programming model that is easier to understand and use.
 
+:::tip
+
+SYCL is pronounced "sickle".
+
+:::
+
 ## What is SYCL?
 
 SYCL is a C++ programming model that enables code for heterogeneous processors to be written in a "single-source" style using completely standard C++.
@@ -38,6 +44,8 @@ services:
 ```
 
 Then you can attach vscode to the docker and use it as your environment (Yes, Rosetta is that magical).
+
+However, this is only good for development. You can not access the GPU via docker (unless you configure GPU passthrough for Nvidia GPU).
 </details>
 
 :::tip

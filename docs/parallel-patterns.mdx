@@ -3,3 +3,156 @@ sidebar_position: 2
 ---
 
 # Parallel Patterns
+
+Parallel patterns are fundamental building blocks in parallel programming, similar to how design patterns work in object-oriented programming. These patterns provide proven solutions to common parallel programming challenges.
+
+## Data Parallelism
+
+### Concept
+
+Data parallelism is a pattern where the same operation is performed on multiple data elements simultaneously. Think of it like having multiple workers processing different parts of a large dataset at the same time. This pattern works best when:
+
+- The data can be split into independent chunks
+- The same operation needs to be applied to each element
+- There are no dependencies between calculations
+
+### Example Implementation
+
+```cpp
+#include <sycl/sycl.hpp>
+#include <iostream>
+
+int main() {
+    const size_t N = 1024;
+    sycl::queue q;
+
+    // Initialize input vectors
+    std::vector<float> a(N, 1.0f);
+    std::vector<float> b(N, 2.0f);
+    std::vector<float> c(N);
+
+    // Create SYCL buffers
+    sycl::buffer<float> buf_a(a.data(), N);
+    sycl::buffer<float> buf_b(b.data(), N);
+    sycl::buffer<float> buf_c(c.data(), N);
+
+    // Perform parallel vector addition
+    q.submit([&](sycl::handler& h) {
+        auto acc_a = buf_a.get_access<sycl::access::mode::read>(h);
+        auto acc_b = buf_b.get_access<sycl::access::mode::read>(h);
+        auto acc_c = buf_c.get_access<sycl::access::mode::write>(h);
+        
+        h.parallel_for(sycl::range<1>{N}, [=](sycl::id<1> idx) {
+            acc_c[idx] = acc_a[idx] + acc_b[idx];  // Each element processed in parallel
+        });
+    });
+
+    q.wait();
+    return 0;
+}
+```
+
+## Task Parallelism
+
+### Concept
+
+Task parallelism focuses on running different functions or tasks simultaneously. Unlike data parallelism, which splits data, task parallelism splits the work itself. It's useful when:
+
+- You have multiple independent operations to perform
+- Tasks might be different from each other
+- Tasks can run independently
+
+### Example Implementation
+
+```cpp
+#include <sycl/sycl.hpp>
+
+int main() {
+    sycl::queue q1, q2;  // Two separate queues for concurrent tasks
+    const size_t N = 1024;
+    std::vector<int> data1(N), data2(N);
+
+    // Task 1: Double each element
+    q1.submit([&](sycl::handler& cgh) {
+        sycl::accessor acc(data1, cgh, sycl::write_only);
+        cgh.parallel_for(sycl::range<1>(N), [=](sycl::id<1> i) {
+            acc[i] = i[0] * 2;
+        });
+    });
+
+    // Task 2: Calculate modulo 100
+    q2.submit([&](sycl::handler& cgh) {
+        sycl::accessor acc(data2, cgh, sycl::write_only);
+        cgh.parallel_for(sycl::range<1>(N), [=](sycl::id<1> i) {
+            acc[i] = i[0] % 100;
+        });
+    });
+
+    q1.wait();
+    q2.wait();
+    return 0;
+}
+```
+
+## Map and Reduce
+
+These are two fundamental parallel patterns often used together:
+
+### Map Pattern
+
+- Transforms each element in a dataset independently
+- Perfect for parallel execution since each operation is independent
+- Example: squaring each number in an array
+
+```cpp
+#include <sycl/sycl.hpp>
+
+int main() {
+    sycl::queue q;
+    const size_t N = 1024;
+    std::vector<int> data(N);
+
+    // Map operation: square each element
+    q.submit([&](sycl::handler& cgh) {
+        cgh.parallel_for(sycl::range<1>(N), [=](sycl::id<1> i) {
+            data[i] = i[0] * i[0];
+        });
+    }).wait();
+}
+```
+
+### Reduce Pattern
+
+- Combines all elements in a dataset into a single result
+- Uses divide-and-conquer to parallelize the reduction
+- Example: summing all numbers in an array
+
+```cpp
+#include <sycl/sycl.hpp>
+
+int main() {
+    sycl::queue q;
+    const size_t N = 1024;
+    std::vector<int> data(N, 1);  // Initialize with 1s
+    sycl::buffer<int> buf(data.data(), sycl::range<1>(N));
+
+    // Parallel reduction
+    size_t size = N;
+    while (size > 1) {
+        size_t new_size = (size + 1) / 2;
+        q.submit([&](sycl::handler& h) {
+            auto acc = buf.get_access<sycl::access::mode::read_write>(h);
+            
+            h.parallel_for(sycl::range<1>(new_size), [=](sycl::id<1> idx) {
+                size_t i = idx[0];
+                size_t pair_idx = i + new_size;
+                if (pair_idx < size) {
+                    acc[i] += acc[pair_idx];  // Combine pairs of elements
+                }
+            });
+        });
+        size = new_size;
+        q.wait();
+    }
+}
+```
