@@ -69,9 +69,9 @@ $$
 
 You can see that we can get the correct prefix sum for each chunk. If we repeat this process, we can get the final result.
 
-And of course, you don't need to treat our first operation as special and write a dedicated kernel- the first operation is just use 2 element chunk while presuming that $A_0$ is chunked every 1 element.
+And of course, you don't need to treat our first operation as special and write a dedicated kernel- the first operation is just 2 element chunk while presuming that $A_0$ is chunked every 1 element.
 
-This process repeats $\log n$ times, and we do a transformation operation on each element in parallel, the complexity is $O(\log n)$.
+This process repeats $\log n$ times, and we do a transformation on each element in parallel, so the complexity is $O(\log n)$.
 
 ## Implementation
 
