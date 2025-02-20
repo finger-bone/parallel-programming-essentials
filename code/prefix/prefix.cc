@@ -7,6 +7,8 @@ using namespace sycl;
 
 int main() {
     queue q;
+    std::cout << "Selected device: "
+    << q.get_device().get_info<info::device::name>() << "\n";
     constexpr int N = 1 << 28;
     std::vector<int> d(N, 1);
     buffer<int> buf_prev(

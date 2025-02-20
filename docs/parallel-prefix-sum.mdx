@@ -132,4 +132,13 @@ int main() {
 }
 ```
 
+
+:::tip
+
+Instead of coping the data from buffer to buffer, you can also set up a flip bit. If flip bit is true, use the first buffer as previous buffer and the second as next buffer, and vice versa is flip bit is false. So that you can save the cost of copying.
+
+This trick is called double buffering.
+
+:::
+
 Segment tree, finding maximum or minimum element can all be done in the same manner.

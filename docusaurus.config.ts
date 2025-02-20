@@ -12,7 +12,7 @@ const title = "Parallel Programming Essentials"
 
 const config: Config = {
   title: title,
-  tagline: 'Dinosaurs are cool',
+  tagline: '',
   favicon: 'img/favicon.ico',
 
   // Set the production url of your site here
