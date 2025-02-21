@@ -1,0 +1,131 @@
+---
+sidebar_position: 2
+---
+
+# Bitonic Sort
+
+Bitonic Sort is an algorithm designed based on merge sort. It is capable of achieving $O((\log n)^2)$ complexity.
+
+## Idea
+
+Looking back at the parallel merge sort algorithm, we can see that it is the merging of two sorted chunks that disabled parallelism due to data dependency, that we can only merge chunks chunk-by-chunk but not element-by-element. This is where bitonic sort comes in.
+
+The bitonic sort is largely the same as the merge sort, but the difference being that, for each group two chunk, the first one should be ascending, but the second one should be descending. Such a sequence is called a bitonic sequence.
+
+### Merge Process
+
+A **bitonic sequence** is a sequence that first monotonically increases and then monotonically decreases (or vice versa). For example, $[3, 5, 7, 8, 6, 4, 2, 1]$ is a bitonic sequence where the first half is ascending ($3 \leq 5 \leq 7 \leq 8$), and the second half is descending ($6 \geq 4 \geq 2 \geq 1$).
+
+The key insight of bitonic sort is that a bitonic sequence can be efficiently merged into a fully sorted sequence in $O(\log n)$ parallel steps. Let’s walk through an example:
+
+### Example: Merging a Bitonic Sequence
+Consider the bitonic sequence $3, 5, 7, 8, 6, 4, 2, 1$ (length $n=8$):
+
+1. **Compare-and-swap pairs across halves**:
+   - Compare elements $i$ and $i + n/2$ (distance $4$ apart):
+     - $(3, 6)$: No swap (since $3 < 6$).
+     - $(5, 4)$: Swap → `[3, 4, 7, 8, 6, 5, 2, 1]`.
+     - $(7, 2)$: Swap → `[3, 4, 2, 8, 6, 5, 7, 1]`.
+     - $(8, 1)$: Swap → `[3, 4, 2, 1, 6, 5, 7, 8]`.
+   - Result: Two smaller bitonic sequences: `[3, 4, 2, 1]` and `[6, 5, 7, 8]`.
+
+2. **Recursively merge each half**:
+   - For the first half `[3, 4, 2, 1]`:
+     - Compare distance $2$: Swap $(3, 2)$ and $(4, 1)$ → `[2, 1, 3, 4]`.
+     - Compare distance $1$: Swap $(2, 1)$ → `[1, 2, 3, 4]`.
+   - For the second half `[6, 5, 7, 8]`:
+     - Compare distance $2$: No swaps needed for $(6, 7)$ and $(5, 8)$.
+     - Compare distance $1$: Swap $(6, 5)$ → `[5, 6, 7, 8]`.
+
+3. **Final merged sequence**:
+   - Combine both halves: `[1, 2, 3, 4, 5, 6, 7, 8]`.
+
+This process leverages parallelism: all comparisons at the same distance can be executed simultaneously.
+
+Repeating this recursively constructs the full bitonic sequence.
+
+From an arbitrary array, we can always chunk it in two to make every chunk bitonic. Thus, the initial state exists.
+
+### Complexity
+
+Each merge step takes $O(\log n)$ time, and there are $O(\log n)$ such steps (for building and merging bitonic sequences). Thus, the total time complexity is $O((\log n)^2)$, which is highly efficient for parallel systems.
+
+## Implementation
+
+Because transmission between host and device is expensive, the code here may run slower than merge sort, even if if has lower complexity. However, this is not a problem with the algorithm itself, but we need ND kernel to synchronize workers.
+
+```cpp
+#include <vector>
+#include <array>
+#include <iostream>
+#include <algorithm>
+#include <sycl/sycl.hpp>
+
+using namespace sycl;
+
+int main()
+{
+    queue q;
+    std::cout << "Selected device: "
+              << q.get_device().get_info<info::device::name>() << "\n";
+    constexpr int N = 1 << 28;
+    std::vector<int> d(N, 0);
+    buffer prev{d.data(), range{N}};
+    buffer<int> next{range{N}};
+
+    auto gen = q.submit([&](handler &h)
+                        {
+        accessor prev_acc{prev, h, write_only};
+        h.parallel_for(N, [=](id<1> i) {
+            prev_acc[i] = N - i * (
+                1 + (i % 3 == 0) + (i % 5 == 0) + (i % 7 == 0) + (i % 11 == 0)
+            );
+        }); });
+    gen.wait();
+
+    int chunk_size = 1;
+    while (chunk_size < N)
+    {
+        chunk_size <<= 1;
+        for (int j = chunk_size >> 1; j > 0; j >>= 1)
+        {
+            auto merge = q.submit([&](handler &h)
+                                  {
+            accessor prev_acc{prev, h, read_only};
+            accessor next_acc{next, h, write_only};
+            int s = chunk_size;
+            int step = j;
+            
+            h.parallel_for(N, [=](id<1> idx) {
+                int i = idx[0];
+                int k = i / s;
+                bool asc = (k % 2 == 0);
+                int partner = i ^ step;
+
+                if (partner > i) {
+                    if (i & step) return;
+                    
+                    if ((asc && prev_acc[i] > prev_acc[partner]) || 
+                        (!asc && prev_acc[i] < prev_acc[partner])) {
+                        next_acc[i] = prev_acc[partner];
+                        next_acc[partner] = prev_acc[i];
+                    } else {
+                        next_acc[i] = prev_acc[i];
+                        next_acc[partner] = prev_acc[partner];
+                    }
+                }
+            }); });
+            merge.wait();
+            auto mv = q.submit([&](handler &h)
+                               {
+            accessor prev_acc{prev, h};
+            accessor next_acc{next, h};
+            h.copy(next_acc, prev_acc); });
+            mv.wait();
+        }
+    }
+
+    host_accessor h_acc{prev, read_only};
+    std::cout << h_acc[N - 1] << std::endl;
+}
+```

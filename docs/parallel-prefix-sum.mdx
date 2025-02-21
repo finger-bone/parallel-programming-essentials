@@ -73,6 +73,22 @@ And of course, you don't need to treat our first operation as special and write 
 
 This process repeats $\log n$ times, and we do a transformation on each element in parallel, so the complexity is $O(\log n)$.
 
+:::tip
+
+In parallel programming, there are two types of complexity, the parallel complexity and the non-parallel complexity (or serial complexity).
+
+Serial complexity complexity of an algorithm when run on a single processor (or core). The goal here is to measure how the execution time of the algorithm grows as the size of the input increases, assuming no parallelism is used.
+
+Parallel complexity, on the other hand, refers to how the algorithm’s runtime behaves when it is parallelized and executed on multiple processors (or cores) simultaneously. The idea is to exploit concurrency to decrease the overall runtime, ideally without increasing the work done.
+
+In that sense, parallel complexity is the real complexity of an algorithm. But because real devices have a finite number of PEs, when the number of task exceeds the number of the PEs, the time will still grown as the serial complexity.
+
+But a lack of PEs is very easy to solve if you have the money. So we usually focus on the parallel complexity in parallel programming. Most of the time, we design methods that has greater serial complexity but lower parallel complexity.
+
+For example, in this prefix sum algorithm. The serial complexity is $O(n \log n)$, even greater than brutal force, but the parallel complexity is $O(\log n)$.
+
+:::
+
 ## Implementation
 
 ```cpp
