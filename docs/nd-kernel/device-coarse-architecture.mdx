@@ -1,0 +1,93 @@
+---
+sidebar_position: 1
+---
+
+# Device Coarse Architecture
+
+Before introducing the ND kernel, we must take a look at how our devices work.
+
+## Command Queue
+
+A command queue is a list of commands that are executed on a device. It is a queue of commands that are executed on a device. You can submit commands to the command queue to be executed on the device.
+
+## Computation Hierarchy
+
+### PE
+
+Processing elements (PE) are the basic units of computation on a device. They are the smallest units of computation that can be executed in parallel on a device. Each PE has its own registers and memory (the private memory). However, PEs doesn't have PC (program counter).
+
+### Wavefront
+
+:::info
+
+Wavefront is the terminology for AMD GPU. For Nvidia GPU, it is called a warp. However, they are fundamentally the same.  
+
+:::
+
+:::tip
+
+Typical values for a wavefront are 32 or 64 PEs.
+
+:::
+
+A wavefront is a set of PEs that shares a clock-cycle. And every PEs in a wavefront stays synchronized.
+
+When performing memory access, the device does so in the unit of wavefront. Thus allowing optimizations like memory coalescing and broadcast.
+
+:::info
+
+In earlier architectures, memory access is done in half-wavefront. But in modern architectures, memory access is done in wavefront.
+
+:::
+
+### Computation Unit
+
+CU is a set of wavefront that holds a shared memory for all PEs. All PEs in a CU can cooperate with each other through shared memory.
+
+## Memory Hierarchy 
+
+### Private Memory
+
+The memory each PE has is called private memory. It is very fast yet small, only accessible to the PE that owns it.
+
+:::info
+
+We are talking about logical architecture. The physical architecture is different.
+
+In real GPU, it has a monolithic private memory bank that is distributed to each PE. However, different PE cannot access other's private memory.
+
+So it is also true for local memory.
+
+:::
+
+### Local Memory
+
+The memory that is shared between PEs in a CU is called local memory. It is a bit slower than private memory, but can be accessed by all PEs in a CU.
+
+Local memory is made up by many banks, usually the same number as the PEs in a CU.
+
+Banks are separated based on low-bit address. That is, assume we have $n$ banks, for the address $i$, it goes to the $i \% n$ bank.
+
+One bank can only handle one request at a time. Thus, if there are multiple PEs accessing the same bank, they have to wait for each other. This phenomenon is called bank conflict.
+
+### Global Memory and Constant Global Memory
+
+They work the same as the name indicates. One thing you need to know is that it is very expensive to access global memory. Thus, you should avoid accessing global memory if possible.
+
+When we talked previously about memory accessing is done in the unit of wavefront, it is also true for global memory.
+
+However, because global memory accessing is expensive, the engineers have designed the memory controller in a way that, if you are accessing aligned, consecutive memory for a wavefront. Instead of fetching the data one by one, it fetches the whole chunk, and then distribute the data to each PEs. This is called memory coalescing.
+
+In addition, if multiple PEs are accessing the same location, they can be broadcasted to the same location. This is called broadcast.
+
+Global memory is the only memory accessible from the host.
+
+:::info
+
+Bank conflict is unique to local memory.
+
+Broadcasting and memory coalescing is unique to global memory.
+
+Wavefront accessing pattern happens in both local memory and global memory.
+
+:::
